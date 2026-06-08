@@ -26,6 +26,38 @@ export interface ForceFeedbackFrame {
   collisionIntensity: number
 }
 
+export interface FilteredForceFeedback {
+  timestamp: number
+  filteredForce: Position3D
+  filteredTorque: Position3D
+  rawForce: Position3D
+  rawTorque: Position3D
+  collisionDetected: boolean
+  collisionIntensity: number
+  isInterpolated: boolean
+  innovation: number
+}
+
+export interface NetworkSimulationConfig {
+  enabled: boolean
+  baseLatencyMs: number
+  jitterMs: number
+  packetLossRate: number
+  burstLossEnabled: boolean
+  burstLossProbability: number
+  burstLossDurationMs: number
+}
+
+export interface FilterStats {
+  kalmanActive: boolean
+  interpolationActive: boolean
+  interpolationRate: number
+  bufferFillLevel: number
+  innovationMagnitude: number
+  jitterReductionDb: number
+  predictedFrames: number
+}
+
 export interface HapticState {
   sampleRateHz: number
   deviceConnected: boolean
@@ -34,9 +66,14 @@ export interface HapticState {
   currentGripOpenness: number
   positionHistory: HapticInputFrame[]
   forceFeedback: ForceFeedbackFrame | null
+  filteredForceFeedback: FilteredForceFeedback | null
   forceHistory: ForceFeedbackFrame[]
+  filteredForceHistory: FilteredForceFeedback[]
   wsConnected: boolean
   wsUrl: string
   latencyMs: number
   collisionAlert: boolean
+  networkSim: NetworkSimulationConfig
+  filterStats: FilterStats
+  filterEnabled: boolean
 }

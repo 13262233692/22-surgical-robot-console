@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
-import type { ForceFeedbackFrame } from '@/types/haptic'
+import type { FilteredForceFeedback } from '@/types/haptic'
 
 const props = defineProps<{
-  force: { x: number; y: number; z: number } | null
-  torque: { x: number; y: number; z: number } | null
-  collisionDetected: boolean
-  collisionIntensity: number
-  history: ForceFeedbackFrame[]
+  filteredData: FilteredForceFeedback | null
+  filterEnabled: boolean
+  isInterpolated: boolean
+  jitterReductionDb: number
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -17,15 +16,18 @@ const MAX_FORCE = 25
 const MAX_TORQUE = 10
 const THRESHOLD = 0.7
 
-function getValues(): number[] {
-  if (!props.force || !props.torque) return [0, 0, 0, 0, 0, 0]
+function getValues(source: 'filtered' | 'raw'): number[] {
+  const d = props.filteredData
+  if (!d) return [0, 0, 0, 0, 0, 0]
+  const force = source === 'filtered' ? d.filteredForce : d.rawForce
+  const torque = source === 'filtered' ? d.filteredTorque : d.rawTorque
   return [
-    Math.abs(props.force.x) / MAX_FORCE,
-    Math.abs(props.force.y) / MAX_FORCE,
-    Math.abs(props.force.z) / MAX_FORCE,
-    Math.abs(props.torque.x) / MAX_TORQUE,
-    Math.abs(props.torque.y) / MAX_TORQUE,
-    Math.abs(props.torque.z) / MAX_TORQUE,
+    Math.abs(force.x) / MAX_FORCE,
+    Math.abs(force.y) / MAX_FORCE,
+    Math.abs(force.z) / MAX_FORCE,
+    Math.abs(torque.x) / MAX_TORQUE,
+    Math.abs(torque.y) / MAX_TORQUE,
+    Math.abs(torque.z) / MAX_TORQUE,
   ].map(v => Math.min(v, 1))
 }
 
@@ -85,11 +87,35 @@ function draw() {
   ctx.stroke()
   ctx.setLineDash([])
 
-  const values = getValues()
+  if (props.filterEnabled && props.filteredData) {
+    const rawValues = getValues('raw')
+    ctx.beginPath()
+    for (let i = 0; i < 6; i++) {
+      const angle = -Math.PI / 2 + (i * Math.PI * 2) / 6
+      const r = rawValues[i] * maxR
+      const x = cx + Math.cos(angle) * r
+      const y = cy + Math.sin(angle) * r
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(255, 59, 59, 0.06)'
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(255, 59, 59, 0.3)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 3])
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  const filteredValues = getValues('filtered')
+  const collisionDetected = props.filteredData?.collisionDetected ?? false
+  const collisionIntensity = props.filteredData?.collisionIntensity ?? 0
+
   ctx.beginPath()
   for (let i = 0; i < 6; i++) {
     const angle = -Math.PI / 2 + (i * Math.PI * 2) / 6
-    const r = values[i] * maxR
+    const r = filteredValues[i] * maxR
     const x = cx + Math.cos(angle) * r
     const y = cy + Math.sin(angle) * r
     if (i === 0) ctx.moveTo(x, y)
@@ -97,8 +123,19 @@ function draw() {
   }
   ctx.closePath()
 
-  const fillColor = props.collisionDetected ? 'rgba(255, 59, 59, 0.2)' : 'rgba(0, 240, 255, 0.2)'
-  const strokeColor = props.collisionDetected ? '#FF3B3B' : '#00F0FF'
+  const isInterp = props.isInterpolated && props.filterEnabled
+  let fillColor: string
+  let strokeColor: string
+  if (collisionDetected) {
+    fillColor = 'rgba(255, 59, 59, 0.2)'
+    strokeColor = '#FF3B3B'
+  } else if (isInterp) {
+    fillColor = 'rgba(0, 176, 255, 0.15)'
+    strokeColor = '#00B0FF'
+  } else {
+    fillColor = 'rgba(0, 240, 255, 0.2)'
+    strokeColor = '#00F0FF'
+  }
   ctx.fillStyle = fillColor
   ctx.fill()
   ctx.strokeStyle = strokeColor
@@ -107,7 +144,7 @@ function draw() {
 
   for (let i = 0; i < 6; i++) {
     const angle = -Math.PI / 2 + (i * Math.PI * 2) / 6
-    const r = values[i] * maxR
+    const r = filteredValues[i] * maxR
     const x = cx + Math.cos(angle) * r
     const y = cy + Math.sin(angle) * r
     ctx.beginPath()
@@ -122,25 +159,25 @@ function draw() {
     const lx = cx + Math.cos(angle) * labelR
     const ly = cy + Math.sin(angle) * labelR
     ctx.font = '10px JetBrains Mono, monospace'
-    ctx.fillStyle = values[i] > THRESHOLD ? '#FFB800' : '#6B7280'
+    ctx.fillStyle = filteredValues[i] > THRESHOLD ? '#FFB800' : '#6B7280'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(AXES[i], lx, ly)
   }
 
-  if (props.collisionDetected) {
+  if (collisionDetected) {
     ctx.strokeStyle = `rgba(255, 59, 59, ${0.3 + Math.sin(Date.now() * 0.01) * 0.3})`
     ctx.lineWidth = 4
     ctx.strokeRect(2, 2, w - 4, h - 4)
   }
 
-  if (props.collisionIntensity > 0) {
+  if (collisionIntensity > 0) {
     const barY = h - 24
     const barW = w - 40
     const barH = 6
     ctx.fillStyle = '#0A0E17'
     ctx.fillRect(20, barY, barW, barH)
-    const intensityW = props.collisionIntensity * barW
+    const intensityW = collisionIntensity * barW
     const barGrad = ctx.createLinearGradient(20, 0, 20 + barW, 0)
     barGrad.addColorStop(0, '#00F0FF')
     barGrad.addColorStop(0.5, '#FFB800')
@@ -152,9 +189,21 @@ function draw() {
     ctx.textAlign = 'left'
     ctx.fillText('COLLISION', 20, barY - 4)
   }
+
+  if (props.filterEnabled) {
+    ctx.font = '8px JetBrains Mono, monospace'
+    ctx.textAlign = 'right'
+    ctx.fillStyle = '#00F0FF'
+    ctx.fillText(`KALMAN: ${props.jitterReductionDb.toFixed(1)}dB`, w - 12, h - 4)
+
+    if (isInterp) {
+      ctx.fillStyle = '#00B0FF'
+      ctx.fillText('INTERP', w - 12, h - 16)
+    }
+  }
 }
 
-watch([() => props.force, () => props.torque, () => props.collisionDetected], draw)
+watch([() => props.filteredData, () => props.filterEnabled, () => props.isInterpolated], draw)
 onMounted(draw)
 </script>
 

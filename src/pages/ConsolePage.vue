@@ -82,11 +82,10 @@ const systemStore = useSystemStore()
           </div>
           <div class="p-2">
             <ForceRadar
-              :force="hapticStore.forceFeedback?.force ?? null"
-              :torque="hapticStore.forceFeedback?.torque ?? null"
-              :collision-detected="hapticStore.forceFeedback?.collisionDetected ?? false"
-              :collision-intensity="hapticStore.forceFeedback?.collisionIntensity ?? 0"
-              :history="hapticStore.forceHistory"
+              :filtered-data="hapticStore.filteredForceFeedback"
+              :filter-enabled="hapticStore.filterEnabled"
+              :is-interpolated="hapticStore.filteredForceFeedback?.isInterpolated ?? false"
+              :jitter-reduction-db="hapticStore.filterStats.jitterReductionDb"
             />
           </div>
         </div>
