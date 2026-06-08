@@ -58,6 +58,25 @@ export interface FilterStats {
   predictedFrames: number
 }
 
+export type SafetyLevel = 'safe' | 'warning' | 'critical' | 'exceeded'
+
+export interface TissueSafetyState {
+  currentTissueType: string
+  safetyEnabled: boolean
+  safetyOverride: boolean
+  safetyLevel: SafetyLevel
+  forceUtilization: number
+  torqueUtilization: number
+  maxUtilization: number
+  wasClamped: boolean
+  clampRatio: number
+  clampingEventCount: number
+  maxForceN: number
+  maxTorqueNm: number
+  warningThresholdPct: number
+  criticalThresholdPct: number
+}
+
 export interface HapticState {
   sampleRateHz: number
   deviceConnected: boolean
@@ -76,4 +95,5 @@ export interface HapticState {
   networkSim: NetworkSimulationConfig
   filterStats: FilterStats
   filterEnabled: boolean
+  tissueSafety: TissueSafetyState
 }

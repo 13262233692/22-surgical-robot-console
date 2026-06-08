@@ -1,9 +1,10 @@
 import { onUnmounted } from 'vue'
 import { useHapticStore } from '@/stores/haptic'
 import { useSystemStore } from '@/stores/system'
-import type { HapticInputFrame, ForceFeedbackFrame, FilteredForceFeedback } from '@/types/haptic'
+import type { HapticInputFrame, ForceFeedbackFrame, FilteredForceFeedback, Position3D } from '@/types/haptic'
 import { KalmanFilter6D, type ForceTorque6D } from '@/lib/kalmanFilter'
 import { InterpolationBuffer, type BufferedFrame } from '@/lib/interpolationBuffer'
+import { ForceClampingGateway } from '@/lib/forceClampingGateway'
 
 export function useHapticWebSocket() {
   const hapticStore = useHapticStore()
@@ -16,6 +17,7 @@ export function useHapticWebSocket() {
 
   const kalmanFilter = new KalmanFilter6D(0.008, 0.15)
   const interpolationBuffer = new InterpolationBuffer(40, 60, 30)
+  const clampingGateway = new ForceClampingGateway()
 
   let rawVarianceSum = 0
   let filteredVarianceSum = 0
@@ -111,18 +113,50 @@ export function useHapticWebSocket() {
     const rawForce = hapticStore.forceFeedback.force
     const rawTorque = hapticStore.forceFeedback.torque
 
+    let filteredForce: Position3D = { x: output.data.fx, y: output.data.fy, z: output.data.fz }
+    let filteredTorque: Position3D = { x: output.data.mx, y: output.data.my, z: output.data.mz }
+
+    if (hapticStore.tissueSafety.safetyEnabled) {
+      clampingGateway.setTissueType(hapticStore.tissueSafety.currentTissueType as any)
+      clampingGateway.setSafetyOverride(hapticStore.tissueSafety.safetyOverride)
+
+      const clamped = clampingGateway.process(filteredForce, filteredTorque)
+      filteredForce = clamped.clampedForce
+      filteredTorque = clamped.clampedTorque
+
+      hapticStore.updateTissueSafety({
+        safetyLevel: clamped.safetyLevel,
+        forceUtilization: clamped.forceUtilization,
+        torqueUtilization: clamped.torqueUtilization,
+        maxUtilization: clamped.maxUtilization,
+        wasClamped: clamped.wasClamped,
+        clampRatio: clamped.clampRatio,
+        clampingEventCount: clampingGateway.getClampingEventCount(),
+      })
+
+      if (clamped.safetyLevel === 'exceeded' && clamped.wasClamped) {
+        if (!hapticStore.tissueSafety.safetyOverride) {
+          systemStore.addLog('critical', 'SAFETY', `⚠ 施力钳制触发！${clamped.tissueProfile.labelCn}极限${clamped.tissueProfile.maxForceN}N，当前力矩模长已归一化至安全阈值`)
+        } else {
+          systemStore.addLog('critical', 'SAFETY', `⚠ 力矩超限！${clamped.tissueProfile.labelCn}极限${clamped.tissueProfile.maxForceN}N，安全覆写已激活——力矩未钳制！`)
+        }
+      } else if (clamped.safetyLevel === 'critical') {
+        systemStore.addLog('warn', 'SAFETY', `施力接近临界：${clamped.tissueProfile.labelCn}利用率 ${(clamped.maxUtilization * 100).toFixed(0)}%`)
+      }
+    } else {
+      hapticStore.updateTissueSafety({
+        safetyLevel: 'safe',
+        forceUtilization: 0,
+        torqueUtilization: 0,
+        maxUtilization: 0,
+        wasClamped: false,
+      })
+    }
+
     const filtered: FilteredForceFeedback = {
       timestamp: output.timestamp,
-      filteredForce: {
-        x: output.data.fx,
-        y: output.data.fy,
-        z: output.data.fz,
-      },
-      filteredTorque: {
-        x: output.data.mx,
-        y: output.data.my,
-        z: output.data.mz,
-      },
+      filteredForce,
+      filteredTorque,
       rawForce,
       rawTorque,
       collisionDetected: output.collisionDetected,
@@ -176,6 +210,7 @@ export function useHapticWebSocket() {
 
     kalmanFilter.reset()
     interpolationBuffer.reset()
+    clampingGateway.reset()
     rawVarianceSum = 0
     filteredVarianceSum = 0
     varianceSampleCount = 0
@@ -287,6 +322,7 @@ export function useHapticWebSocket() {
     hapticStore.setDeviceConnected(false)
     kalmanFilter.reset()
     interpolationBuffer.reset()
+    clampingGateway.reset()
     systemStore.addLog('info', 'HAPTIC', '触觉手柄已断开')
     systemStore.addLog('info', 'WEBSOCKET', 'WebSocket已断开')
   }

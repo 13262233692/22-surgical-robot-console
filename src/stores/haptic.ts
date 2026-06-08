@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import type { Position3D, HapticInputFrame, ForceFeedbackFrame, FilteredForceFeedback, NetworkSimulationConfig, FilterStats, HapticState } from '@/types/haptic'
+import type { Position3D, HapticInputFrame, ForceFeedbackFrame, FilteredForceFeedback, NetworkSimulationConfig, FilterStats, TissueSafetyState, HapticState } from '@/types/haptic'
+import { TISSUE_PROFILES } from '@/types/tissue'
 
 const MAX_HISTORY = 300
 
@@ -38,6 +39,22 @@ export const useHapticStore = defineStore('haptic', {
       predictedFrames: 0,
     },
     filterEnabled: true,
+    tissueSafety: {
+      currentTissueType: 'hepatic_parenchyma',
+      safetyEnabled: true,
+      safetyOverride: false,
+      safetyLevel: 'safe',
+      forceUtilization: 0,
+      torqueUtilization: 0,
+      maxUtilization: 0,
+      wasClamped: false,
+      clampRatio: 1,
+      clampingEventCount: 0,
+      maxForceN: TISSUE_PROFILES.hepatic_parenchyma.maxForceN,
+      maxTorqueNm: TISSUE_PROFILES.hepatic_parenchyma.maxTorqueNm,
+      warningThresholdPct: TISSUE_PROFILES.hepatic_parenchyma.warningThresholdPct,
+      criticalThresholdPct: TISSUE_PROFILES.hepatic_parenchyma.criticalThresholdPct,
+    },
   }),
   actions: {
     updatePosition(frame: HapticInputFrame) {
@@ -89,6 +106,25 @@ export const useHapticStore = defineStore('haptic', {
     },
     clearAlert() {
       this.collisionAlert = false
+    },
+    updateTissueSafety(partial: Partial<TissueSafetyState>) {
+      Object.assign(this.tissueSafety, partial)
+    },
+    setTissueType(type: string) {
+      const profile = TISSUE_PROFILES[type as keyof typeof TISSUE_PROFILES]
+      if (profile) {
+        this.tissueSafety.currentTissueType = type
+        this.tissueSafety.maxForceN = profile.maxForceN
+        this.tissueSafety.maxTorqueNm = profile.maxTorqueNm
+        this.tissueSafety.warningThresholdPct = profile.warningThresholdPct
+        this.tissueSafety.criticalThresholdPct = profile.criticalThresholdPct
+      }
+    },
+    setSafetyEnabled(enabled: boolean) {
+      this.tissueSafety.safetyEnabled = enabled
+    },
+    setSafetyOverride(override: boolean) {
+      this.tissueSafety.safetyOverride = override
     },
   },
 })
